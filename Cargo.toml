@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "crates/auralis-core",
+    "crates/auralis-dsp",
+    "crates/auralis-wasapi",
+    "crates/auralis-ipc",
+    "crates/auralis-engine",
+    "crates/auralis-ui"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Prayoga Adi"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort" # Optimization: reduce binary size and improve performance for audio daemon
+strip = true

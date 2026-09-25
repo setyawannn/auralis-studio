@@ -1,0 +1,20 @@
+[package]
+name = "auralis-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+auralis-core = { path = "../auralis-core" }
+auralis-ipc = { path = "../auralis-ipc" }
+auralis-wasapi = { path = "../auralis-wasapi" }
+windows = { version = "*", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
+windows-sys = { version = "*" }
+
+# For Slint UI framework
+[dependencies.slint]
+version = "1.8"
+features = ["backend-winit", "renderer-winit-femtovg"]
+
+[build-dependencies]
+slint-build = "1.8"

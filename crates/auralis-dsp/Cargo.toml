@@ -1,0 +1,9 @@
+[package]
+name = "auralis-dsp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+auralis-core = { path = "../auralis-core" }
+serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,512 @@
+import { VerticalBox, HorizontalBox, Slider, CheckBox, ComboBox, Button, ScrollView } from "std-widgets.slint";
+
+export struct AppSessionItem {
+    name: string,
+    is_chat: bool,
+}
+
+export global Palette {
+    out property <color> surface0: #111317; // Deep Obsidian
+    out property <color> surface1: #181B20; // Dark Carbon
+    out property <color> surface2: #22262E; // Muted Slate
+    out property <color> border: #2E3440;   // Subtle Graphite
+    
+    out property <color> accent-game: #00E5FF;
+    out property <color> accent-chat: #FFB300;
+    out property <color> accent-mic: #00E676;
+    out property <color> accent-master: #7C4DFF;
+    out property <color> text-normal: #E4E4E7;
+    out property <color> text-muted: #A1A1AA;
+}
+
+// Custom responsif VU Meter (Vertical) dengan threshold warna akurat (Green -> Yellow -> Red)
+component VuMeter inherits Rectangle {
+    in property <float> level: 0.0; // 0.0 to 1.0
+    
+    width: 10px;
+    background: Palette.surface0;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Palette.border;
+    clip: true;
+
+    // Full height gradient (0% - 65% Hijau, 65% - 85% Kuning, 85% - 100% Merah)
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(0deg, #00E676 0%, #00E676 65%, #FFEA00 85%, #FF1744 95%);
+    }
+
+    // Mask penutup dari atas (menghalangi bagian level yang belum tercapai)
+    Rectangle {
+        y: 0px;
+        width: 100%;
+        height: parent.height * (1.0 - clamp(level, 0.0, 1.0));
+        background: Palette.surface0;
+    }
+}
+
+// Custom responsif VU Meter (Horizontal) dengan threshold warna akurat
+component HorizontalVuMeter inherits Rectangle {
+    in property <float> level: 0.0; // 0.0 to 1.0
+    
+    height: 8px;
+    background: Palette.surface0;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Palette.border;
+    clip: true;
+
+    // Full width gradient
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(90deg, #00E676 0%, #00E676 65%, #FFEA00 85%, #FF1744 95%);
+    }
+
+    // Mask penutup dari kanan
+    Rectangle {
+        x: parent.width * clamp(level, 0.0, 1.0);
+        y: 0px;
+        width: parent.width * (1.0 - clamp(level, 0.0, 1.0));
+        height: 100%;
+        background: Palette.surface0;
+    }
+}
+
+// Custom Vertical Fader Strip
+component ChannelStrip inherits Rectangle {
+    in property <string> title;
+    in property <color> accent;
+    in property <float> vu-l: 0.0;
+    in property <float> vu-r: 0.0;
+    in-out property <float> volume: 1.0;
+    in-out property <bool> muted: false;
+    property <float> prev-volume: 1.0;
+
+    callback volume-changed(float);
+    callback toggle-mute();
+
+    width: 125px;
+    background: Palette.surface1;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        // Header
+        Text {
+            text: root.title;
+            color: root.accent;
+            font-weight: 700;
+            font-size: 14px;
+            horizontal-alignment: center;
+        }
+
+        // VU & Slider Area
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+
+            // Stereo VU Meters
+            HorizontalLayout {
+                spacing: 3px;
+                VuMeter { level: root.vu-l; height: 170px; }
+                VuMeter { level: root.vu-r; height: 170px; }
+            }
+
+            // Tactile Vertical Fader
+            Rectangle {
+                width: 28px;
+                height: 170px;
+                background: Palette.surface0;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: Palette.border;
+
+                // Center Track Line
+                Rectangle {
+                    x: 12px;
+                    y: 10px;
+                    width: 4px;
+                    height: parent.height - 20px;
+                    background: Palette.surface2;
+                    border-radius: 2px;
+                }
+
+                // Active Colored Fill Line
+                Rectangle {
+                    x: 12px;
+                    y: (parent.height - 20px) * (1.0 - root.volume) + 10px;
+                    width: 4px;
+                    height: (parent.height - 20px) * root.volume;
+                    background: root.accent;
+                    border-radius: 2px;
+                }
+
+                // Knob Handle (Circle with prominent highlight)
+                Rectangle {
+                    x: 4px;
+                    y: (parent.height - 20px) * (1.0 - root.volume);
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 10px;
+                    background: #FFFFFF;
+                    border-width: 2px;
+                    border-color: root.accent;
+                }
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            let travel = self.height - 20px;
+                            let pos = clamp(self.mouse-y - 10px, 0px, travel);
+                            root.volume = clamp(1.0 - (pos / travel), 0.0, 1.0);
+                            root.volume-changed(root.volume);
+                        }
+                    }
+                    moved => {
+                        let travel = self.height - 20px;
+                        let pos = clamp(self.mouse-y - 10px, 0px, travel);
+                        root.volume = clamp(1.0 - (pos / travel), 0.0, 1.0);
+                        root.volume-changed(root.volume);
+                    }
+                }
+            }
+        }
+
+        // Volume Percentage Label
+        Text {
+            text: Math.round(root.volume * 100) + "%";
+            color: Palette.text-normal;
+            font-size: 13px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+
+
+        // Mute Button
+        Rectangle {
+            height: 26px;
+            border-radius: 4px;
+            background: root.muted ? #FF1744 : Palette.surface2;
+            
+            Text {
+                text: root.muted ? "MUTED" : "MUTE";
+                color: root.muted ? #FFFFFF : Palette.text-normal;
+                font-weight: 700;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                clicked => {
+                    root.muted = !root.muted;
+                    if (root.muted) {
+                        root.prev-volume = root.volume;
+                        root.volume = 0.0;
+                    } else {
+                        root.volume = root.prev-volume > 0.05 ? root.prev-volume : 1.0;
+                    }
+                    root.volume-changed(root.volume);
+                    root.toggle-mute();
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Auralis Audio Studio";
+    width: 880px;
+    height: 600px;
+    background: Palette.surface0;
+    default-font-family: "Segoe UI Variable Text";
+
+    // Telemetry State
+    in property <float> vu-game-l;
+    in property <float> vu-game-r;
+    in property <float> vu-chat-l;
+    in property <float> vu-chat-r;
+    in property <float> vu-master-l;
+    in property <float> vu-master-r;
+    
+    in-out property <float> chatmix-balance: 0.0; // -1.0 to 1.0
+    in-out property <float> master-volume: 0.8;   // 0.0 to 1.0 (synced with Windows master volume)
+    in-out property <float> game-volume: 1.0;
+    in-out property <float> chat-volume: 1.0;
+    property <float> prev-master-volume: 0.8;
+
+    // Hardware Output Devices
+    in property <[string]> output-devices: [];
+    in-out property <int> selected-device-index: 0;
+    callback device-selected(string);
+
+    // App Audio Sessions
+    in-out property <[AppSessionItem]> app-sessions: [];
+    callback set-app-channel(int, bool);
+
+    // Audio Controls Callbacks
+    callback game-volume-changed(float);
+    callback chat-volume-changed(float);
+    callback master-volume-changed(float);
+    callback chatmix-changed(float);
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+
+        // Top Bar: Hardware Device Selector
+        HorizontalLayout {
+            spacing: 14px;
+            alignment: start;
+            Text {
+                text: "Hardware Playback Output:";
+                color: Palette.text-normal;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            ComboBox {
+                width: 420px;
+                model: root.output-devices;
+                current-index <=> root.selected-device-index;
+                selected(name) => {
+                    root.device-selected(name);
+                }
+            }
+        }
+
+        // Main Workspace
+        HorizontalLayout {
+            spacing: 16px;
+
+            // Left Section: Channel Strips (Game & Chat)
+            HorizontalLayout {
+                spacing: 12px;
+                
+                ChannelStrip {
+                    title: "GAME";
+                    accent: Palette.accent-game;
+                    vu-l: root.vu-game-l;
+                    vu-r: root.vu-game-r;
+                    volume <=> root.game-volume;
+                    volume-changed(v) => { root.game-volume-changed(v); }
+                }
+                
+                ChannelStrip {
+                    title: "CHAT";
+                    accent: Palette.accent-chat;
+                    vu-l: root.vu-chat-l;
+                    vu-r: root.vu-chat-r;
+                    volume <=> root.chat-volume;
+                    volume-changed(v) => { root.chat-volume-changed(v); }
+                }
+            }
+
+            // Right Section: ChatMix, App Router & Master
+            VerticalLayout {
+                spacing: 12px;
+
+                // ChatMix Card
+                Rectangle {
+                    background: Palette.surface1;
+                    border-radius: 8px;
+                    border-color: Palette.border;
+                    border-width: 1px;
+                    height: 100px;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        alignment: center;
+                        
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text { text: "◀ 100% GAME"; color: Palette.accent-game; font-weight: 700; font-size: 11px; }
+                            Text { text: "ChatMix Crossfader"; color: Palette.text-normal; font-weight: 700; font-size: 12px; }
+                            Text { text: "100% CHAT ▶"; color: Palette.accent-chat; font-weight: 700; font-size: 11px; }
+                        }
+
+                        Slider {
+                            minimum: -100;
+                            maximum: 100;
+                            value: 0;
+                            changed(val) => { 
+                                root.chatmix-balance = val / 100.0;
+                                root.chatmix-changed(root.chatmix-balance);
+                            }
+                        }
+                    }
+                }
+
+                // App Audio Router Panel
+                Rectangle {
+                    background: Palette.surface1;
+                    border-radius: 8px;
+                    border-color: Palette.border;
+                    border-width: 1px;
+                    height: 180px;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text { text: "App Audio Routing"; color: Palette.text-normal; font-weight: 700; }
+                            Text { text: "Pilih rute per aplikasi"; color: Palette.text-muted; font-size: 11px; }
+                        }
+
+                        ScrollView {
+                            height: 130px;
+                            VerticalLayout {
+                                spacing: 6px;
+                                for app[idx] in root.app-sessions: HorizontalLayout {
+                                    alignment: space-between;
+
+                                    Text {
+                                        text: app.name;
+                                        color: Palette.text-normal;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Selector Pill: [ GAME | CHAT ]
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        Rectangle {
+                                            width: 60px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            background: !app.is_chat ? Palette.accent-game : Palette.surface2;
+                                            Text {
+                                                text: "GAME";
+                                                font-size: 10px;
+                                                font-weight: 700;
+                                                color: !app.is_chat ? #111317 : Palette.text-muted;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                            TouchArea {
+                                                clicked => {
+                                                    root.set-app-channel(idx, false);
+                                                }
+                                            }
+                                        }
+                                        Rectangle {
+                                            width: 60px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            background: app.is_chat ? Palette.accent-chat : Palette.surface2;
+                                            Text {
+                                                text: "CHAT";
+                                                font-size: 10px;
+                                                font-weight: 700;
+                                                color: app.is_chat ? #111317 : Palette.text-muted;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                            TouchArea {
+                                                clicked => {
+                                                    root.set-app-channel(idx, true);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Master Output Card
+                Rectangle {
+                    background: Palette.surface1;
+                    border-radius: 8px;
+                    border-color: Palette.border;
+                    border-width: 1px;
+                    height: 84px;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+
+                        // Header Row: Title & Quick Mute Button
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text { 
+                                text: "Master Volume & Limiter: " + Math.round(root.master-volume * 100) + "%"; 
+                                color: Palette.accent-master; 
+                                font-weight: 700;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                width: 60px;
+                                height: 22px;
+                                border-radius: 4px;
+                                background: root.master-volume <= 0.001 ? #FF1744 : Palette.surface2;
+                                Text {
+                                    text: root.master-volume <= 0.001 ? "MUTED" : "MUTE";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: root.master-volume <= 0.001 ? #FFFFFF : Palette.text-normal;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea {
+                                    clicked => {
+                                        if (root.master-volume > 0.001) {
+                                            root.prev-master-volume = root.master-volume;
+                                            root.master-volume = 0.0;
+                                        } else {
+                                            root.master-volume = root.prev-master-volume > 0.05 ? root.prev-master-volume : 0.8;
+                                        }
+                                        root.master-volume-changed(root.master-volume);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Controls Row: VU Meter & Full-width Slider
+                        HorizontalLayout {
+                            spacing: 14px;
+                            VerticalLayout {
+                                width: 130px;
+                                spacing: 4px;
+                                alignment: center;
+                                HorizontalVuMeter { level: root.vu-master-l; }
+                                HorizontalVuMeter { level: root.vu-master-r; }
+                            }
+                            Slider { 
+                                horizontal-stretch: 1;
+                                value: root.master-volume * 100.0; 
+                                minimum: 0; 
+                                maximum: 100; 
+                                changed(val) => {
+                                    root.master-volume = clamp(val / 100.0, 0.0, 1.0);
+                                    root.master-volume-changed(root.master-volume);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Status Bar
+        HorizontalLayout {
+            padding-top: 4px;
+            Text {
+                text: "● Engine: Active | Endpoints: 96,000 Hz / 48,000 Hz | Zero-Copy Lock-Free";
+                color: Palette.text-muted;
+                font-size: 11px;
+            }
+        }
+    }
+}

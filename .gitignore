@@ -1,0 +1,21 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+.idea/
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Downloaded 3rd-party drivers / installer binaries
+drivers/
+*.zip
+*.exe
+*.sys
+*.cat
