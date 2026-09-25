@@ -69,6 +69,49 @@ impl AudioDeviceManager {
         Ok(physical)
     }
 
+    /// Mendapatkan seluruh perangkat input audio aktif (Microphone, Line In, dsb)
+    pub fn enumerate_capture_devices(&self) -> Result<Vec<AudioEndpointInfo>> {
+        unsafe {
+            let collection = self.enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
+            let count = collection.GetCount()?;
+            let mut devices = Vec::with_capacity(count as usize);
+
+            let default_device = self.get_default_capture_device().ok();
+            let default_id = default_device.and_then(|d| Self::get_device_id(&d).ok());
+
+            for i in 0..count {
+                if let Ok(device) = collection.Item(i) {
+                    if let Ok(id) = Self::get_device_id(&device) {
+                        let name = Self::get_device_friendly_name(&device).unwrap_or_else(|_| id.clone());
+                        let is_default = default_id.as_deref() == Some(&id);
+
+                        devices.push(AudioEndpointInfo {
+                            id,
+                            name,
+                            is_default,
+                        });
+                    }
+                }
+            }
+
+            Ok(devices)
+        }
+    }
+
+    /// Mendapatkan seluruh perangkat input fisik (Microphone fisik nyata, abaikan virtual cable)
+    pub fn enumerate_physical_capture_devices(&self) -> Result<Vec<AudioEndpointInfo>> {
+        let all = self.enumerate_capture_devices()?;
+        let mut physical = Vec::new();
+        for dev in all {
+            let lower = dev.name.to_lowercase();
+            if lower.contains("cable") || lower.contains("sonar") || lower.contains("virtual") {
+                continue;
+            }
+            physical.push(dev);
+        }
+        Ok(physical)
+    }
+
     /// Mendapatkan perangkat output audio default
     pub fn get_default_render_device(&self) -> Result<IMMDevice> {
         unsafe {

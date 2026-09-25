@@ -50,6 +50,21 @@ fn main() {
     let mut game_capture_stream = WasapiCaptureStream::new_loopback(&virtual_game_device)
         .expect("Failed to initialize loopback capture stream");
 
+    // Inisialisasi Input Microphone Fisik (jika tersedia)
+    let physical_mic_devices = device_manager.enumerate_physical_capture_devices().unwrap_or_default();
+    let mut current_mic_stream: Option<WasapiCaptureStream> = None;
+    if let Some(mic_info) = physical_mic_devices.first() {
+        if let Ok(mic_dev) = device_manager.get_device_by_id(&mic_info.id) {
+            if let Ok(mut stream) = WasapiCaptureStream::new(&mic_dev) {
+                let mic_pipeline = MicCapturePipeline { shm: shm.clone() };
+                if stream.start(mic_pipeline).is_ok() {
+                    println!(">>> Physical Microphone Input (Source): {}", mic_info.name);
+                    current_mic_stream = Some(stream);
+                }
+            }
+        }
+    }
+
     // 6. Inisialisasi Pipelines dengan Shared Memory
     let mut pipeline = AudioEnginePipeline::new(shm.clone());
     pipeline.game_in = Some(game_consumer); // Pasang consumer ke render pipeline
@@ -133,16 +148,21 @@ fn main() {
                                                         proc_lower.contains("discord") || proc_lower.contains("teamspeak") || proc_lower.contains("skype") || proc_lower.contains("zoom")
                                                     });
 
+                                                let is_app_muted = telemetry.get_app_muted(&final_display) || telemetry.get_app_muted(&process_name);
+
                                                 let target_vol = if is_chat { chat_vol * chat_mul } else { game_vol * game_mul };
 
                                                 if let Ok(simple_vol) = control.cast::<ISimpleAudioVolume>() {
-                                                    unsafe { let _ = simple_vol.SetMasterVolume(target_vol, std::ptr::null()); }
+                                                    unsafe {
+                                                        let _ = simple_vol.SetMute(is_app_muted, std::ptr::null());
+                                                        let _ = simple_vol.SetMasterVolume(target_vol, std::ptr::null());
+                                                    }
                                                 }
 
                                                 if let Ok(meter) = control.cast::<IAudioMeterInformation>() {
                                                     if let Ok(peak) = unsafe { meter.GetPeakValue() } {
                                                         // Kalikan dengan target_vol agar grafik turun saat slider volume diturunkan
-                                                        let effective_peak = peak * target_vol;
+                                                        let effective_peak = if is_app_muted { 0.0 } else { peak * target_vol };
                                                         if is_chat {
                                                             if effective_peak > max_chat_peak { max_chat_peak = effective_peak; }
                                                         } else {
@@ -169,10 +189,11 @@ fn main() {
         }
     });
 
-    // Loop pemantauan kontrol: deteksi jika pengguna mengganti speaker/headphone di UI
+    // Loop pemantauan kontrol: deteksi jika pengguna mengganti speaker/headphone atau microphone di UI
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
+        // 1. Output Device Switching
         if let Some(target_idx) = shm.get().check_target_device_change() {
             let current_phys_devices = device_manager.enumerate_physical_devices().unwrap_or_default();
             if let Some(target_info) = current_phys_devices.get(target_idx as usize) {
@@ -197,5 +218,48 @@ fn main() {
                 }
             }
         }
+
+        // 2. Microphone Input Device Switching
+        if let Some(target_input_idx) = shm.get().check_target_input_change() {
+            let current_phys_mics = device_manager.enumerate_physical_capture_devices().unwrap_or_default();
+            if let Some(target_info) = current_phys_mics.get(target_input_idx as usize) {
+                println!(">>> Switching physical microphone input to: {}", target_info.name);
+                if let Ok(new_mic_dev) = device_manager.get_device_by_id(&target_info.id) {
+                    if let Ok(mut new_mic_stream) = WasapiCaptureStream::new(&new_mic_dev) {
+                        let mic_pipe = MicCapturePipeline { shm: shm.clone() };
+                        if new_mic_stream.start(mic_pipe).is_ok() {
+                            if let Some(old_mic) = current_mic_stream.take() {
+                                old_mic.stop();
+                            }
+                            current_mic_stream = Some(new_mic_stream);
+                            println!(">>> Microphone input switched successfully to: {}", target_info.name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Callback capture stream untuk Microphone fisik
+struct MicCapturePipeline {
+    shm: Arc<SharedMemory>,
+}
+
+impl auralis_wasapi::stream::AudioCaptureCallback for MicCapturePipeline {
+    fn process_capture(&mut self, buffer: &[f32]) {
+        let telemetry = self.shm.get();
+        let mic_vol = telemetry.read_mic_volume();
+        let mut peak = 0.0f32;
+        for &sample in buffer {
+            let abs = sample.abs() * mic_vol;
+            if abs > peak {
+                peak = abs;
+            }
+        }
+        if peak < 0.003 {
+            peak = 0.0;
+        }
+        telemetry.write_mic_peak(peak);
     }
 }

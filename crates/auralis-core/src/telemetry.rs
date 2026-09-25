@@ -24,13 +24,17 @@ pub struct SharedAudioTelemetry {
     game_volume: AtomicU32,
     chat_volume: AtomicU32,
     master_volume: AtomicU32,
+    mic_volume: AtomicU32,
     chatmix_balance: AtomicU32,
     target_device_idx: AtomicU32,
     target_device_changed: AtomicU32,
+    target_input_device_idx: AtomicU32,
+    target_input_device_changed: AtomicU32,
 
     // App Routing (UI -> Engine)
     app_names: [[u8; 32]; 16],
     app_is_chat: [AtomicU32; 16],
+    app_is_muted: [AtomicU32; 16],
 }
 
 // Ensure the struct can be safely casted to bytes
@@ -51,11 +55,15 @@ impl SharedAudioTelemetry {
             game_volume: AtomicU32::new(1.0f32.to_bits()),
             chat_volume: AtomicU32::new(1.0f32.to_bits()),
             master_volume: AtomicU32::new(0.9f32.to_bits()),
+            mic_volume: AtomicU32::new(1.0f32.to_bits()),
             chatmix_balance: AtomicU32::new(0.0f32.to_bits()),
             target_device_idx: AtomicU32::new(0),
             target_device_changed: AtomicU32::new(0),
+            target_input_device_idx: AtomicU32::new(0),
+            target_input_device_changed: AtomicU32::new(0),
             app_names: [[0; 32]; 16],
             app_is_chat: core::array::from_fn(|_| AtomicU32::new(0)),
+            app_is_muted: core::array::from_fn(|_| AtomicU32::new(0)),
         }
     }
 
@@ -175,6 +183,16 @@ impl SharedAudioTelemetry {
         Self::bits_to_f32(self.chatmix_balance.load(Ordering::Relaxed))
     }
 
+    #[inline(always)]
+    pub fn write_mic_volume(&self, val: f32) {
+        self.mic_volume.store(Self::f32_to_bits(val), Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    pub fn read_mic_volume(&self) -> f32 {
+        Self::bits_to_f32(self.mic_volume.load(Ordering::Relaxed))
+    }
+
     pub fn set_target_device(&self, idx: u32) {
         self.target_device_idx.store(idx, Ordering::Release);
         self.target_device_changed.store(1, Ordering::Release);
@@ -183,6 +201,19 @@ impl SharedAudioTelemetry {
     pub fn check_target_device_change(&self) -> Option<u32> {
         if self.target_device_changed.swap(0, Ordering::AcqRel) == 1 {
             Some(self.target_device_idx.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    pub fn set_target_input_device(&self, idx: u32) {
+        self.target_input_device_idx.store(idx, Ordering::Release);
+        self.target_input_device_changed.store(1, Ordering::Release);
+    }
+
+    pub fn check_target_input_change(&self) -> Option<u32> {
+        if self.target_input_device_changed.swap(0, Ordering::AcqRel) == 1 {
+            Some(self.target_input_device_idx.load(Ordering::Acquire))
         } else {
             None
         }
@@ -230,5 +261,46 @@ impl SharedAudioTelemetry {
             }
         }
         None
+    }
+
+    pub fn set_app_muted(&mut self, name: &str, is_muted: bool) {
+        let norm = Self::normalize_name(name);
+        if norm[0] == 0 {
+            return;
+        }
+        let mut slot = 16;
+        for i in 0..16 {
+            if self.app_names[i] == norm {
+                self.app_is_muted[i].store(if is_muted { 1 } else { 0 }, Ordering::Release);
+                return;
+            }
+            if self.app_names[i][0] == 0 && slot == 16 {
+                slot = i;
+            }
+        }
+        if slot < 16 {
+            self.app_names[slot] = norm;
+            self.app_is_muted[slot].store(if is_muted { 1 } else { 0 }, Ordering::Release);
+        }
+    }
+
+    pub fn toggle_app_muted(&mut self, name: &str) -> bool {
+        let current = self.get_app_muted(name);
+        let next = !current;
+        self.set_app_muted(name, next);
+        next
+    }
+
+    pub fn get_app_muted(&self, name: &str) -> bool {
+        let norm = Self::normalize_name(name);
+        if norm[0] == 0 {
+            return false;
+        }
+        for i in 0..16 {
+            if self.app_names[i] == norm {
+                return self.app_is_muted[i].load(Ordering::Acquire) == 1;
+            }
+        }
+        false
     }
 }
