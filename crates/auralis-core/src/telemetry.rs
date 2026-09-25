@@ -25,6 +25,7 @@ pub struct SharedAudioTelemetry {
     chat_volume: AtomicU32,
     master_volume: AtomicU32,
     mic_volume: AtomicU32,
+    mic_muted: AtomicU32,
     chatmix_balance: AtomicU32,
     target_device_idx: AtomicU32,
     target_device_changed: AtomicU32,
@@ -56,6 +57,7 @@ impl SharedAudioTelemetry {
             chat_volume: AtomicU32::new(1.0f32.to_bits()),
             master_volume: AtomicU32::new(0.9f32.to_bits()),
             mic_volume: AtomicU32::new(1.0f32.to_bits()),
+            mic_muted: AtomicU32::new(0),
             chatmix_balance: AtomicU32::new(0.0f32.to_bits()),
             target_device_idx: AtomicU32::new(0),
             target_device_changed: AtomicU32::new(0),
@@ -191,6 +193,16 @@ impl SharedAudioTelemetry {
     #[inline(always)]
     pub fn read_mic_volume(&self) -> f32 {
         Self::bits_to_f32(self.mic_volume.load(Ordering::Relaxed))
+    }
+
+    #[inline(always)]
+    pub fn write_mic_muted(&self, muted: bool) {
+        self.mic_muted.store(if muted { 1 } else { 0 }, Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    pub fn read_mic_muted(&self) -> bool {
+        self.mic_muted.load(Ordering::Relaxed) != 0
     }
 
     pub fn set_target_device(&self, idx: u32) {

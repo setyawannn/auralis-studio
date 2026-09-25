@@ -36,14 +36,22 @@ fn main() {
     let (physical_output_device, physical_name) = device_manager
         .find_physical_output_device(None)
         .expect("Failed to find physical output device");
+    let (virtual_mic_sink_device, virtual_mic_sink_name) = device_manager
+        .find_virtual_mic_sink_device()
+        .expect("Failed to find virtual mic sink device");
 
     println!("==================================================");
     println!(">>> Virtual Audio Input (Source): {}", virtual_name);
     println!(">>> Physical Audio Output (Target): {}", physical_name);
+    println!(">>> Virtual Mic Output (Discord Target): {}", virtual_mic_sink_name);
     println!("==================================================");
     
-    // 4. Buat Lock-Free SPSC Ring Buffers (Kapasitas ~1 detik audio stereo pada 48kHz = 48000 * 2 = 96000 float)
+    // 4. Buat Lock-Free SPSC Ring Buffers
+    // Kapasitas ~1 detik audio stereo pada 48kHz = 48000 * 2 = 96000 float
     let (game_producer, game_consumer) = rtrb::RingBuffer::<f32>::new(96000);
+    let (mic_producer, mic_consumer) = rtrb::RingBuffer::<f32>::new(96000);
+    let mic_producer_arc = Arc::new(std::sync::Mutex::new(Some(mic_producer)));
+    let mic_consumer_arc = Arc::new(std::sync::Mutex::new(Some(mic_consumer)));
 
     // 5. Inisialisasi WASAPI Streams
     use auralis_wasapi::stream::WasapiCaptureStream;
@@ -56,7 +64,10 @@ fn main() {
     if let Some(mic_info) = physical_mic_devices.first() {
         if let Ok(mic_dev) = device_manager.get_device_by_id(&mic_info.id) {
             if let Ok(mut stream) = WasapiCaptureStream::new(&mic_dev) {
-                let mic_pipeline = MicCapturePipeline { shm: shm.clone() };
+                let mic_pipeline = MicCapturePipeline {
+                    shm: shm.clone(),
+                    producer: mic_producer_arc.clone(),
+                };
                 if stream.start(mic_pipeline).is_ok() {
                     println!(">>> Physical Microphone Input (Source): {}", mic_info.name);
                     current_mic_stream = Some(stream);
@@ -64,6 +75,15 @@ fn main() {
             }
         }
     }
+
+    // Inisialisasi Stream Render Virtual Microphone (mengalirkan mic fisik ke CABLE Input untuk Discord)
+    let mut mic_render_stream = WasapiRenderStream::new(&virtual_mic_sink_device)
+        .expect("Failed to initialize virtual mic render stream");
+    let mic_render_pipe = MicVirtualCableRenderPipeline {
+        consumer: mic_consumer_arc.clone(),
+    };
+    mic_render_stream.start(mic_render_pipe).expect("Failed to start virtual mic render stream");
+    println!(">>> Started forwarding processed microphone audio to: {}", virtual_mic_sink_name);
 
     // 6. Inisialisasi Pipelines dengan Shared Memory
     let mut pipeline = AudioEnginePipeline::new(shm.clone());
@@ -226,7 +246,10 @@ fn main() {
                 println!(">>> Switching physical microphone input to: {}", target_info.name);
                 if let Ok(new_mic_dev) = device_manager.get_device_by_id(&target_info.id) {
                     if let Ok(mut new_mic_stream) = WasapiCaptureStream::new(&new_mic_dev) {
-                        let mic_pipe = MicCapturePipeline { shm: shm.clone() };
+                        let mic_pipe = MicCapturePipeline {
+                            shm: shm.clone(),
+                            producer: mic_producer_arc.clone(),
+                        };
                         if new_mic_stream.start(mic_pipe).is_ok() {
                             if let Some(old_mic) = current_mic_stream.take() {
                                 old_mic.stop();
@@ -241,25 +264,81 @@ fn main() {
     }
 }
 
-/// Callback capture stream untuk Microphone fisik
+/// Callback capture stream untuk Microphone fisik:
+/// Membaca sinyal mic, menerapkan mute, slider volume, noise gate,
+/// menghitung peak VU meter, dan memasukkan sinyal ke ring buffer.
 struct MicCapturePipeline {
     shm: Arc<SharedMemory>,
+    producer: Arc<std::sync::Mutex<Option<rtrb::Producer<f32>>>>,
 }
 
 impl auralis_wasapi::stream::AudioCaptureCallback for MicCapturePipeline {
     fn process_capture(&mut self, buffer: &[f32]) {
         let telemetry = self.shm.get();
         let mic_vol = telemetry.read_mic_volume();
+        let is_muted = telemetry.read_mic_muted() || mic_vol <= 0.001;
+
         let mut peak = 0.0f32;
-        for &sample in buffer {
-            let abs = sample.abs() * mic_vol;
-            if abs > peak {
-                peak = abs;
+
+        if let Ok(mut guard) = self.producer.try_lock() {
+            if let Some(ref mut prod) = *guard {
+                for &sample in buffer {
+                    let processed = if is_muted {
+                        0.0
+                    } else {
+                        let scaled = sample * mic_vol;
+                        // Noise gate: potong noise lantai / desis ruangan di bawah 0.0035
+                        if scaled.abs() < 0.0035 {
+                            0.0
+                        } else {
+                            scaled
+                        }
+                    };
+
+                    let abs = processed.abs();
+                    if abs > peak {
+                        peak = abs;
+                    }
+
+                    let _ = prod.push(processed);
+                }
             }
         }
+
         if peak < 0.003 {
             peak = 0.0;
         }
         telemetry.write_mic_peak(peak);
+    }
+}
+
+/// Callback render stream untuk Virtual Cable:
+/// Mengalirkan audio mikrofon yang sudah diproses ke CABLE Input secara lock-free,
+/// sehingga Windows Default Input / Discord (CABLE Output) menerima suara pengguna secara jernih.
+struct MicVirtualCableRenderPipeline {
+    consumer: Arc<std::sync::Mutex<Option<rtrb::Consumer<f32>>>>,
+}
+
+impl auralis_wasapi::stream::AudioRenderCallback for MicVirtualCableRenderPipeline {
+    #[inline(always)]
+    fn process_render(&mut self, buffer: &mut [f32]) {
+        if let Ok(mut guard) = self.consumer.try_lock() {
+            if let Some(ref mut cons) = *guard {
+                // Cegah akumulasi latensi jika capture lebih cepat dari render (> 50ms)
+                let available = cons.slots();
+                if available > 4800 {
+                    let to_drop = available - 1920;
+                    for _ in 0..to_drop {
+                        let _ = cons.pop();
+                    }
+                }
+
+                for sample in buffer.iter_mut() {
+                    *sample = cons.pop().unwrap_or(0.0);
+                }
+                return;
+            }
+        }
+        buffer.fill(0.0);
     }
 }

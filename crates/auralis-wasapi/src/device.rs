@@ -190,6 +190,29 @@ impl AudioDeviceManager {
         Ok((default_device, name))
     }
 
+    /// Mencari virtual cable render endpoint ("CABLE Input" / "Auralis Mic") untuk meneruskan audio mic ke Discord/Windows
+    pub fn find_virtual_mic_sink_device(&self) -> Result<(IMMDevice, String)> {
+        let devices = self.enumerate_render_devices()?;
+        // Prioritas 1: Auralis Mic / Virtual Mic
+        if let Some(d) = devices.iter().find(|d| {
+            let lower = d.name.to_lowercase();
+            lower.contains("auralis mic") || lower.contains("auralis input")
+        }) {
+            return Ok((self.get_device_by_id(&d.id)?, d.name.clone()));
+        }
+        // Prioritas 2: VB-Audio Cable Input
+        if let Some(d) = devices.iter().find(|d| {
+            let lower = d.name.to_lowercase();
+            lower.contains("cable input")
+        }) {
+            return Ok((self.get_device_by_id(&d.id)?, d.name.clone()));
+        }
+        // Fallback: Default Render device
+        let default_device = self.get_default_render_device()?;
+        let name = Self::get_device_friendly_name(&default_device).unwrap_or_else(|_| "Default".to_string());
+        Ok((default_device, name))
+    }
+
     /// Mencari output fisik (Hardware speaker / headphone) untuk memutar hasil mixing DSP
     pub fn find_physical_output_device(&self, preferred_id: Option<&str>) -> Result<(IMMDevice, String)> {
         let devices = self.enumerate_render_devices()?;
@@ -252,6 +275,13 @@ mod tests {
         
         println!("\n=== DETECTED PHYSICAL & VIRTUAL OUTPUT DEVICES ===");
         for dev in &devices {
+            println!("- Name: {} (Default: {})", dev.name, dev.is_default);
+        }
+        println!("==================================================\n");
+
+        let capture_devices = manager.enumerate_capture_devices().expect("Failed to enumerate capture devices");
+        println!("\n=== DETECTED CAPTURE DEVICES ===");
+        for dev in &capture_devices {
             println!("- Name: {} (Default: {})", dev.name, dev.is_default);
         }
         println!("==================================================\n");

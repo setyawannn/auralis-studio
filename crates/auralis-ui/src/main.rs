@@ -177,6 +177,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let shm_mic_mute = shm_arc.clone();
+    ui.on_mic_mute_toggled(move |muted| {
+        if let Some(ref shm) = shm_mic_mute {
+            shm.get().write_mic_muted(muted);
+        }
+    });
+
     let shm_mix = shm_arc.clone();
     ui.on_chatmix_changed(move |bal| {
         if let Some(ref shm) = shm_mix {
@@ -381,14 +388,17 @@ mod tests {
         match mgr {
             Ok(ref m) => {
                 println!("AudioDeviceManager::new() SUCCEEDED");
-                let devs = m.enumerate_physical_devices();
-                println!("enumerate_physical_devices: {:?}", devs);
-                let mics = m.enumerate_physical_capture_devices();
-                println!("enumerate_physical_capture_devices: {:?}", mics);
-                let sessions = AudioSessionTracker::get_all_active_sessions(m);
-                println!("sessions count: {}", sessions.len());
-                for s in &sessions {
-                    println!("Session: {} ({})", s.display_name, s.process_name);
+                let all_renders = m.enumerate_render_devices();
+                println!("all_render_devices: {:?}", all_renders);
+                let all_captures = m.enumerate_capture_devices();
+                println!("all_capture_devices: {:?}", all_captures);
+                if let Ok(d) = m.get_default_render_device() {
+                    let name = AudioDeviceManager::get_device_friendly_name(&d);
+                    println!("DEFAULT RENDER DEVICE: {:?}", name);
+                }
+                if let Ok(d) = m.get_default_capture_device() {
+                    let name = AudioDeviceManager::get_device_friendly_name(&d);
+                    println!("DEFAULT CAPTURE DEVICE: {:?}", name);
                 }
             }
             Err(ref e) => {

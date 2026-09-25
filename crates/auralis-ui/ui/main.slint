@@ -7,17 +7,17 @@ export struct AppSessionItem {
 }
 
 export global Palette {
-    out property <color> surface0: #111317; // Deep Obsidian
-    out property <color> surface1: #181B20; // Dark Carbon
-    out property <color> surface2: #22262E; // Muted Slate
-    out property <color> border: #2E3440;   // Subtle Graphite
+    out property <color> surface0: #121417; // Deep Obsidian
+    out property <color> surface1: #191C21; // Dark Carbon
+    out property <color> surface2: #232730; // Muted Slate
+    out property <color> border: #232730;   // Subtle graphite border
     
-    out property <color> accent-game: #00E5FF;
-    out property <color> accent-chat: #FFB300;
-    out property <color> accent-mic: #00E676;
-    out property <color> accent-master: #7C4DFF;
-    out property <color> text-normal: #E4E4E7;
-    out property <color> text-muted: #A1A1AA;
+    out property <color> accent-game: #38BDF8;   // Studio Cyan
+    out property <color> accent-chat: #F59E0B;   // Studio Warm Amber
+    out property <color> accent-mic: #10B981;    // Studio Emerald Green
+    out property <color> accent-master: #8B5CF6; // Studio Violet
+    out property <color> text-normal: #E2E8F0;
+    out property <color> text-muted: #8F96A3;
 }
 
 // Custom responsif VU Meter (Vertical) dengan threshold warna akurat (Green -> Yellow -> Red)
@@ -25,17 +25,15 @@ component VuMeter inherits Rectangle {
     in property <float> level: 0.0; // 0.0 to 1.0
     
     width: 10px;
-    background: Palette.surface0;
+    background: #14171D;
     border-radius: 4px;
-    border-width: 1px;
-    border-color: Palette.border;
     clip: true;
 
     // Full height gradient (0% - 65% Hijau, 65% - 85% Kuning, 85% - 100% Merah)
     Rectangle {
         width: 100%;
         height: 100%;
-        background: @linear-gradient(0deg, #00E676 0%, #00E676 65%, #FFEA00 85%, #FF1744 95%);
+        background: @linear-gradient(0deg, #10B981 0%, #10B981 65%, #F59E0B 85%, #EF4444 95%);
     }
 
     // Mask penutup dari atas (menghalangi bagian level yang belum tercapai)
@@ -43,7 +41,7 @@ component VuMeter inherits Rectangle {
         y: 0px;
         width: 100%;
         height: parent.height * (1.0 - clamp(level, 0.0, 1.0));
-        background: Palette.surface0;
+        background: #14171D;
     }
 }
 
@@ -101,6 +99,7 @@ export component MainWindow inherits Window {
     callback game-volume-changed(float);
     callback chat-volume-changed(float);
     callback mic-volume-changed(float);
+    callback mic-mute-toggled(bool);
     callback chatmix-changed(float);
 
     VerticalLayout {
@@ -278,32 +277,39 @@ export component MainWindow inherits Window {
                                 padding: 6px;
                                 spacing: 4px;
                                 for app in root.all-apps: Rectangle {
-                                    height: 22px;
+                                    height: 24px;
                                     border-radius: 4px;
-                                    background: app.is_muted ? #3E1822 : #251F3D;
-                                    border-width: 1px;
-                                    border-color: app.is_muted ? #FF1744 : Palette.accent-master;
+                                    background: app.is_muted ? #321E23 : #20242D;
                                     
                                     HorizontalLayout {
-                                        padding-left: 6px;
+                                        padding-left: 8px;
                                         padding-right: 6px;
-                                        spacing: 4px;
+                                        spacing: 6px;
                                         alignment: space-between;
 
                                         Text {
                                             text: app.name;
-                                            font-size: 10px;
-                                            font-weight: 700;
-                                            color: app.is_muted ? #FF8A80 : #D1C4E9;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: app.is_muted ? #ECA8B1 : #CBD5E1;
                                             vertical-alignment: center;
                                             overflow: elide;
                                         }
-                                        Text {
-                                            text: app.is_muted ? "MUTED" : "ON";
-                                            font-size: 9px;
-                                            font-weight: 700;
-                                            color: app.is_muted ? #FF1744 : Palette.accent-master;
-                                            vertical-alignment: center;
+
+                                        Rectangle {
+                                            width: 42px;
+                                            height: 18px;
+                                            border-radius: 3px;
+                                            background: app.is_muted ? #541D26 : #2D333F;
+
+                                            Text {
+                                                text: app.is_muted ? "MUTED" : "ON";
+                                                font-size: 9px;
+                                                font-weight: 700;
+                                                color: app.is_muted ? #F87171 : #94A3B8;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                     }
 
@@ -321,11 +327,11 @@ export component MainWindow inherits Window {
                     Rectangle {
                         height: 28px;
                         border-radius: 4px;
-                        background: root.master-muted ? #FF1744 : Palette.surface2;
+                        background: root.master-muted ? #DC2626 : #242831;
                         
                         Text {
                             text: root.master-muted ? "MUTED" : "MUTE";
-                            color: root.master-muted ? #FFFFFF : Palette.text-normal;
+                            color: root.master-muted ? #FFFFFF : #94A3B8;
                             font-weight: 700;
                             font-size: 11px;
                             horizontal-alignment: center;
@@ -468,32 +474,39 @@ export component MainWindow inherits Window {
                                 padding: 6px;
                                 spacing: 4px;
                                 for app in root.game-apps: Rectangle {
-                                    height: 22px;
+                                    height: 24px;
                                     border-radius: 4px;
-                                    background: #112A35;
-                                    border-width: 1px;
-                                    border-color: Palette.accent-game;
+                                    background: #17232B;
                                     
                                     HorizontalLayout {
-                                        padding-left: 6px;
+                                        padding-left: 8px;
                                         padding-right: 6px;
-                                        spacing: 4px;
+                                        spacing: 6px;
                                         alignment: space-between;
 
                                         Text {
                                             text: app.name;
-                                            font-size: 10px;
-                                            font-weight: 700;
-                                            color: #E0F7FA;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: #BAE6FD;
                                             vertical-alignment: center;
                                             overflow: elide;
                                         }
-                                        Text {
-                                            text: "⇄ CHAT";
-                                            font-size: 9px;
-                                            font-weight: 700;
-                                            color: Palette.accent-game;
-                                            vertical-alignment: center;
+
+                                        Rectangle {
+                                            width: 56px;
+                                            height: 18px;
+                                            border-radius: 3px;
+                                            background: #1E3A4B;
+
+                                            Text {
+                                                text: "TO CHAT";
+                                                font-size: 9px;
+                                                font-weight: 700;
+                                                color: #38BDF8;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                     }
 
@@ -511,11 +524,11 @@ export component MainWindow inherits Window {
                     Rectangle {
                         height: 28px;
                         border-radius: 4px;
-                        background: root.game-muted ? #FF1744 : Palette.surface2;
+                        background: root.game-muted ? #DC2626 : #242831;
                         
                         Text {
                             text: root.game-muted ? "MUTED" : "MUTE";
-                            color: root.game-muted ? #FFFFFF : Palette.text-normal;
+                            color: root.game-muted ? #FFFFFF : #94A3B8;
                             font-weight: 700;
                             font-size: 11px;
                             horizontal-alignment: center;
@@ -658,32 +671,39 @@ export component MainWindow inherits Window {
                                 padding: 6px;
                                 spacing: 4px;
                                 for app in root.chat-apps: Rectangle {
-                                    height: 22px;
+                                    height: 24px;
                                     border-radius: 4px;
-                                    background: #352B11;
-                                    border-width: 1px;
-                                    border-color: Palette.accent-chat;
+                                    background: #282318;
                                     
                                     HorizontalLayout {
-                                        padding-left: 6px;
+                                        padding-left: 8px;
                                         padding-right: 6px;
-                                        spacing: 4px;
+                                        spacing: 6px;
                                         alignment: space-between;
 
                                         Text {
                                             text: app.name;
-                                            font-size: 10px;
-                                            font-weight: 700;
-                                            color: #FFF8E1;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: #FEF08A;
                                             vertical-alignment: center;
                                             overflow: elide;
                                         }
-                                        Text {
-                                            text: "⇄ GAME";
-                                            font-size: 9px;
-                                            font-weight: 700;
-                                            color: Palette.accent-chat;
-                                            vertical-alignment: center;
+
+                                        Rectangle {
+                                            width: 56px;
+                                            height: 18px;
+                                            border-radius: 3px;
+                                            background: #42351C;
+
+                                            Text {
+                                                text: "TO GAME";
+                                                font-size: 9px;
+                                                font-weight: 700;
+                                                color: #FBBF24;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                     }
 
@@ -701,11 +721,11 @@ export component MainWindow inherits Window {
                     Rectangle {
                         height: 28px;
                         border-radius: 4px;
-                        background: root.chat-muted ? #FF1744 : Palette.surface2;
+                        background: root.chat-muted ? #DC2626 : #242831;
                         
                         Text {
                             text: root.chat-muted ? "MUTED" : "MUTE";
-                            color: root.chat-muted ? #FFFFFF : Palette.text-normal;
+                            color: root.chat-muted ? #FFFFFF : #94A3B8;
                             font-weight: 700;
                             font-size: 11px;
                             horizontal-alignment: center;
@@ -849,53 +869,65 @@ export component MainWindow inherits Window {
                             alignment: center;
 
                             Rectangle {
-                                height: 22px;
+                                height: 24px;
                                 border-radius: 4px;
-                                background: #0E2E1E;
-                                border-width: 1px;
-                                border-color: Palette.accent-mic;
+                                background: #18281F;
                                 HorizontalLayout {
                                     padding-left: 8px;
-                                    padding-right: 8px;
+                                    padding-right: 6px;
                                     alignment: space-between;
                                     Text {
-                                        text: "🎙 Clean Voice Gate";
-                                        font-size: 10px;
-                                        font-weight: 700;
-                                        color: #E8F5E9;
+                                        text: "Clean Voice Gate";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: #A7F3D0;
                                         vertical-alignment: center;
                                     }
-                                    Text {
-                                        text: "ACTIVE";
-                                        font-size: 9px;
-                                        font-weight: 700;
-                                        color: Palette.accent-mic;
-                                        vertical-alignment: center;
+                                    Rectangle {
+                                        width: 50px;
+                                        height: 18px;
+                                        border-radius: 3px;
+                                        background: #1E3E2E;
+                                        Text {
+                                            text: "ACTIVE";
+                                            font-size: 9px;
+                                            font-weight: 700;
+                                            color: #34D399;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
                                     }
                                 }
                             }
 
                             Rectangle {
-                                height: 22px;
+                                height: 24px;
                                 border-radius: 4px;
-                                background: Palette.surface2;
+                                background: #1F242C;
                                 HorizontalLayout {
                                     padding-left: 8px;
-                                    padding-right: 8px;
+                                    padding-right: 6px;
                                     alignment: space-between;
                                     Text {
-                                        text: "⚡ Ultra-Low Latency";
-                                        font-size: 10px;
+                                        text: "WASAPI Stream";
+                                        font-size: 11px;
                                         font-weight: 600;
-                                        color: Palette.text-muted;
+                                        color: #94A3B8;
                                         vertical-alignment: center;
                                     }
-                                    Text {
-                                        text: "WASAPI";
-                                        font-size: 9px;
-                                        font-weight: 700;
-                                        color: Palette.text-muted;
-                                        vertical-alignment: center;
+                                    Rectangle {
+                                        width: 54px;
+                                        height: 18px;
+                                        border-radius: 3px;
+                                        background: #2A313C;
+                                        Text {
+                                            text: "10 MS";
+                                            font-size: 9px;
+                                            font-weight: 700;
+                                            color: #64748B;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
                                     }
                                 }
                             }
@@ -906,11 +938,11 @@ export component MainWindow inherits Window {
                     Rectangle {
                         height: 28px;
                         border-radius: 4px;
-                        background: root.mic-muted ? #FF1744 : Palette.surface2;
+                        background: root.mic-muted ? #DC2626 : #242831;
                         
                         Text {
                             text: root.mic-muted ? "MUTED" : "MUTE";
-                            color: root.mic-muted ? #FFFFFF : Palette.text-normal;
+                            color: root.mic-muted ? #FFFFFF : #94A3B8;
                             font-weight: 700;
                             font-size: 11px;
                             horizontal-alignment: center;
@@ -926,6 +958,7 @@ export component MainWindow inherits Window {
                                     root.mic-volume = root.prev-mic-volume > 0.05 ? root.prev-mic-volume : 1.0;
                                 }
                                 root.mic-volume-changed(root.mic-volume);
+                                root.mic-mute-toggled(root.mic-muted);
                             }
                         }
                     }
